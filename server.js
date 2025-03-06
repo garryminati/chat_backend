@@ -1,36 +1,44 @@
 const express = require("express");
 const http = require("http");
-const { Server } = require("socket.io");
+const socketIo = require("socket.io");
 const cors = require("cors");
 
 const app = express();
-app.use(cors());
 const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: { origin: "*", methods: ["GET", "POST"] }
+});
 
-const io = new Server(server, { cors: { origin: "*" } });
-
-let rooms = {}; // Stores messages for each room
+const messages = {};
+const users = {}; // Track users per room
 
 io.on("connection", (socket) => {
-  console.log("New client connected:", socket.id);
+  console.log("A user connected");
 
   socket.on("joinRoom", (room) => {
     socket.join(room);
-    socket.emit("loadMessages", rooms[room] || []);
+    users[socket.id] = room;
+
+    if (!messages[room]) messages[room] = [];
+    io.to(room).emit("userList", Object.values(users).filter((r) => r === room));
+
+    socket.emit("adminMessages", messages[room]);
   });
 
-  socket.on("sendMessage", ({ room, user, text }) => {
-    const message = { user, text };
-    if (!rooms[room]) rooms[room] = [];
-    rooms[room].push(message);
-
-    io.to(room).emit("receiveMessage", message);
+  socket.on("sendMessage", (data) => {
+    const { user, room, text } = data;
+    const msg = { user, text };
+    messages[room].push(msg);
+    io.to(room).emit("message", msg);
   });
 
   socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
+    const room = users[socket.id];
+    delete users[socket.id];
+
+    io.to(room).emit("userList", Object.values(users).filter((r) => r === room));
+    console.log("A user disconnected");
   });
 });
 
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(5000, () => console.log("Server running on port 5000"));
